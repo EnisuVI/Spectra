@@ -1,0 +1,391 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Spectra</title>
+<style>
+:root{--bg:#eceff2;--p:#fff;--b:#d5dae0;--t:#161a20;--m:#656d79;--a:#2740d9;--r:#d93a2b;--c:#e3e7ec}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--t);font:15px/1.5 system-ui,sans-serif}
+main{max-width:1080px;margin:auto;padding:22px 16px 40px}
+h1{font:700 40px/1 Georgia,serif;margin:0;letter-spacing:-.02em}
+.sub{color:var(--m);margin:6px 0 20px}
+section{background:var(--p);border:1px solid var(--b);border-radius:6px;padding:16px;margin-bottom:14px}
+h2{font:600 17px Georgia,serif;margin:0 0 4px}
+.hint{color:var(--m);font-size:13px;margin:0 0 12px}
+button{background:var(--p);color:var(--t);border:1px solid var(--b);border-radius:4px;padding:8px 14px;font:inherit;cursor:pointer}
+button:hover{border-color:var(--a)}button:focus-visible,input:focus-visible{outline:2px solid var(--a);outline-offset:2px}
+button.on{background:var(--a);border-color:var(--a);color:#fff}
+button.big{padding:10px 20px;font-weight:600}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.row+.row{margin-top:10px}
+.m{font-family:ui-monospace,Menlo,monospace}.dim{color:var(--m)}
+#drop{border:2px dashed var(--b);border-radius:6px;padding:28px;text-align:center;color:var(--m);cursor:pointer}
+#drop.h,#drop:hover{border-color:var(--a);color:var(--t)}
+.spw{position:relative;height:300px;margin:10px 0 18px 44px;cursor:crosshair}
+#spg{width:100%;height:100%;display:block;background:#000;border-radius:3px}
+.fl{position:absolute;left:-44px;width:38px;text-align:right;font-size:11px;color:var(--m);transform:translateY(-50%)}
+#ph{position:absolute;top:0;bottom:0;left:0;width:2px;background:#fff;box-shadow:0 0 0 1px #0006;pointer-events:none}
+#live{width:100%;display:block;border:1px solid var(--b);border-radius:3px}
+#rd{margin-top:6px;font-size:13px}
+.cd{display:flex;gap:10px;align-items:baseline;padding:6px 0;border-bottom:1px solid var(--c);cursor:pointer}
+.cd em{color:var(--m);font-style:normal;font-size:13px}
+.vu{position:relative;height:14px;border-radius:2px;overflow:hidden;background:linear-gradient(90deg,#3fbf7a 0 75%,#ffc83d 75% 88%,var(--r) 88%)}
+.vu+.vu{margin-top:3px;height:8px}
+.vu s{position:absolute;right:0;top:0;bottom:0;width:100%;background:var(--c)}
+.vu u{position:absolute;left:90.9%;top:0;bottom:0;width:2px;background:var(--t)}
+.vu b{position:absolute;top:0;bottom:0;width:2px;background:var(--t);left:0}
+#clip.on{background:var(--r);border-color:var(--r);color:#fff}
+input[type=range]{accent-color:var(--a);width:220px}
+#status{color:var(--m);font-size:13px;margin-top:8px}
+</style></head><body><main>
+<h1>Spectra</h1>
+<p class="sub">Trouve le grésillement, remonte la voix, règle le niveau, exporte.</p>
+
+<section>
+<div id="drop" tabindex="0">Dépose un fichier audio ou vidéo ici, ou clique pour le choisir</div>
+<input id="file" type="file" accept="audio/*,video/*" hidden>
+<div id="status"></div>
+</section>
+
+<section>
+<h2>Lecture et spectrogramme</h2>
+<p class="hint">Clique sur le spectrogramme pour te placer. Barre d’espace : lecture ou pause. Les fréquences sont en échelle logarithmique, le grave (50 Hz) en bas.</p>
+<div class="row"><button id="play" class="big">Lecture</button><span id="time" class="m">0:00 / 0:00</span><span class="dim">Vitesse</span><span id="sp" class="row"></span></div>
+<div class="spw" id="spw"><canvas id="spg" width="10" height="10"></canvas><div id="ph"></div></div>
+</section>
+
+<section>
+<h2>Fréquences et niveaux en temps réel</h2>
+<p class="hint">Rouge : le son en cours de lecture. Bleu-vert : le plancher de bruit du fichier. Là où les deux courbes se touchent, la voix est noyée. Passe la souris pour lire fréquence et niveau ; les pointillés marquent les fréquences parasites cochées.</p>
+<canvas id="live" width="1000" height="280"></canvas>
+<div id="rd" class="m">Pic : — </div>
+</section>
+
+<section>
+<h2>Analyse du bruit de fond</h2>
+<p class="hint">Spectra cherche les fréquences présentes en continu, même quand personne ne parle : ce sont elles, le grésillement. Coche celles à retirer.</p>
+<div class="row"><label for="th">Sensibilité de détection</label><input id="th" type="range" min="3" max="20" value="6"><span id="thv" class="m">6 dB</span></div>
+<div id="cands"></div>
+</section>
+
+<section>
+<h2>Traitement</h2>
+<p class="hint">Vox remonte la gamme des voix. Grilz retire les fréquences cochées ci-dessus, réduit le souffle de fond, puis coupe le bruit entre les phrases avec un noise gate calé automatiquement (quelques secondes de calcul quand tu l’actives ou changes un curseur). Les deux peuvent se combiner.</p>
+<div class="row"><button id="vox" class="big">Vox</button><button id="grilz" class="big">Grilz</button></div><div class="row"><label for="str">Réduction de bruit</label><input id="str" type="range" min="10" max="100" value="50"><span id="sv" class="m">50 %</span><label for="gt">Noise gate</label><input id="gt" type="range" min="0" max="100" value="60"><span id="gv2" class="m">60 %</span></div>
+<div class="row"><label for="gain">Gain</label><input id="gain" type="range" min="0" max="30" step="0.5" value="0"><span id="gv" class="m">0 dB</span><button id="auto">Auto (voix à -20 dB)</button><button id="lim" class="on">Limiteur</button></div>
+<div style="margin-top:12px"><div class="vu"><s id="c1"></s><b id="vh"></b><u></u></div><div class="vu"><s id="c2"></s><u></u></div></div>
+<div class="row"><span id="vt" class="m">Crête — / RMS —</span><button id="clip">Saturation</button></div>
+<p class="hint">Barre du haut : crête. Barre du bas : niveau moyen (RMS). Le trait noir marque 0 dB : au-delà, ça sature. Clique sur « Saturation » pour remettre le voyant à zéro. Le limiteur écrase les pics (clics, consonnes dures) avant qu’ils ne saturent ; coupe-le pour voir ce qui sature vraiment.</p>
+</section>
+
+<section>
+<h2>Export</h2>
+<div class="row"><button id="pdf" class="big">Rapport PDF</button><button id="wav" class="big">Fichier audio modifié (WAV 24 bits)</button></div>
+</section>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script>
+const $=s=>document.querySelector(s);
+addEventListener('error',e=>{$('#status').textContent='Erreur : '+e.message});
+const N=4096,FMAX=16000,F0=30,FQ=[50,100,200,500,1000,2000,5000,10000];
+const lbl=f=>f>=1000?f/1000+'k':f, fmt=s=>Math.floor(s/60)+':'+String(Math.floor(s%60)).padStart(2,'0');
+const px=(f,w)=>w*Math.log(f/20)/Math.log(1000);
+let urlO,urlD,dn=null,dn0=null,dn0S=-1,dnG=-1,dnS=-1,voiceDb=-40,flipped=false,ac,au,src,buf,live,specAn,meterAn,fa,ta=new Float32Array(2048),S,frames,maxBin,binHz,noise,meanDb,cands=[],hiss={db:-120,on:false},peakDb=-120,fname='',url,rate=1,hx=null,hold=-60,clip=false;
+const st={vox:false,grilz:false,gain:0,lim:true};
+
+/* FFT */
+const win=new Float32Array(N).map((_,i)=>.5-.5*Math.cos(2*Math.PI*i/N));
+const LG=Math.log2(N),rev=new Uint16Array(N),CT=new Float32Array(N/2),ST=new Float32Array(N/2);
+for(let i=0;i<N;i++){let r=0;for(let b=0;b<LG;b++)if(i>>b&1)r|=1<<(LG-1-b);rev[i]=r}
+for(let i=0;i<N/2;i++){CT[i]=Math.cos(2*Math.PI*i/N);ST[i]=-Math.sin(2*Math.PI*i/N)}
+function fft(re,im){
+ for(let i=0;i<N;i++){const j=rev[i];if(j>i){let t=re[i];re[i]=re[j];re[j]=t;t=im[i];im[i]=im[j];im[j]=t}}
+ for(let l=2;l<=N;l<<=1){const h=l>>1,s=N/l;
+  for(let i=0;i<N;i+=l)for(let j=0,k=0;j<h;j++,k+=s){const a=i+j,b=a+h,wr=CT[k],wi=ST[k],xr=re[b]*wr-im[b]*wi,xi=re[b]*wi+im[b]*wr;re[b]=re[a]-xr;im[b]=im[a]-xi;re[a]+=xr;im[a]+=xi}}
+}
+
+/* Chaîne de traitement (identique en direct et à l'export) */
+function chain(c,s,o){
+ const ns=[];let n=s;const add=x=>{n.connect(x);n=x;ns.push(x)};
+ const bq=(t,f,g=0,q=1)=>{const x=c.createBiquadFilter();x.type=t;x.frequency.value=f;x.gain.value=g;x.Q.value=q;add(x)};
+ if(o.grilz){o.f.forEach(f=>bq('notch',f,0,f<200?8:f<1000?20:30));}
+ if(o.vox){bq('highpass',90,0,.7);bq('peaking',250,-2,.8);bq('peaking',1500,4,.8);bq('peaking',3500,5,1)}
+ const g=c.createGain();g.gain.value=10**(o.gain/20);add(g);ns.g=g;
+ if(o.lim){const l=c.createDynamicsCompressor();l.threshold.value=-3;l.knee.value=0;l.ratio.value=20;l.attack.value=.001;l.release.value=.15;add(l)}
+ return ns;
+}
+const settings=()=>({vox:st.vox,grilz:st.grilz,f:cands.filter(c=>c.on).map(c=>c.f),hiss:hiss.on,gain:st.gain,lim:st.lim});
+function rewire(){
+ if(!src)return;src.disconnect();live&&live.forEach(n=>n.disconnect());
+ live=chain(ac,src,settings());const out=live[live.length-1];out.connect(specAn);out.connect(meterAn);
+}
+
+/* Import */
+async function load(f){
+ const s=$('#status');
+ try{
+  s.textContent='Décodage du fichier…';
+  ac=ac||new (window.AudioContext||window.webkitAudioContext)({sampleRate:48000});
+  buf=await ac.decodeAudioData(await f.arrayBuffer());
+ }catch(e){s.textContent='Ce fichier n’a pas pu être lu. Essaie un WAV, MP3, M4A ou MP4.';return}
+ flipped=false;
+ if(buf.numberOfChannels==2){const A=buf.getChannelData(0),B=buf.getChannelData(1);let ab=0,aa=0,bb=0;
+  for(let i=0;i<A.length;i+=7){ab+=A[i]*B[i];aa+=A[i]*A[i];bb+=B[i]*B[i]}
+  if(ab/Math.sqrt(aa*bb+1e-20)<-.5){for(let i=0;i<B.length;i++)B[i]=-B[i];flipped=true}}
+ fname=f.name;url&&URL.revokeObjectURL(url);url=URL.createObjectURL(new Blob([wav(buf)[0]],{type:'audio/wav'}));
+ if(!au){
+  au=new Audio();src=ac.createMediaElementSource(au);
+  specAn=ac.createAnalyser();specAn.fftSize=4096;specAn.smoothingTimeConstant=.75;specAn.minDecibels=-110;specAn.maxDecibels=0;
+  meterAn=ac.createAnalyser();meterAn.fftSize=2048;meterAn.smoothingTimeConstant=0;
+  specAn.connect(ac.destination);fa=new Float32Array(specAn.frequencyBinCount);
+  au.onerror=()=>{$('#status').textContent='Lecture impossible : '+((au.error&&au.error.message)||'format non pris en charge')};
+  au.onplay=au.onpause=au.onended=()=>$('#play').textContent=au.paused?'Lecture':'Pause';
+ }
+ urlO=url;dn=dn0=null;au.onloadedmetadata=null;au.src=url;au.playbackRate=rate;
+ if(!await spectro())return;
+ detect();s.textContent='Prêt : '+fname+(flipped?' (voies gauche et droite en opposition de phase : voie droite inversée automatiquement)':'');if(st.grilz)applyGrilz();
+}
+
+async function spectro(){
+ const sr=buf.sampleRate,L=buf.length,C=buf.numberOfChannels,s=$('#status');
+ if(L<N*2){s.textContent='Fichier trop court pour être analysé.';return false}
+ const m=new Float32Array(L);let pk=0;
+ for(let c=0;c<C;c++){const d=buf.getChannelData(c);for(let i=0;i<L;i++){m[i]+=d[i]/C;const a=Math.abs(d[i]);if(a>pk)pk=a}}
+
+ peakDb=20*Math.log10(pk+1e-9);
+ {const wv=2400,rv=[];for(let i=0;i+wv<=L;i+=wv){let q=0;for(let j=i;j<i+wv;j++)q+=m[j]*m[j];rv.push(10*Math.log10(q/wv+1e-14))}rv.sort((a,b)=>a-b);voiceDb=rv[rv.length*.95|0]}
+ binHz=sr/N;maxBin=Math.min(N/2,Math.floor(FMAX/binHz));
+ const hop=Math.max(512,Math.floor((L-N)/1600));frames=Math.floor((L-N)/hop)+1;
+ S=new Float32Array(frames*maxBin);meanDb=new Float32Array(maxBin);
+ const re=new Float32Array(N),im=new Float32Array(N);
+ for(let t=0;t<frames;t++){
+  const o=t*hop;for(let i=0;i<N;i++){re[i]=m[o+i]*win[i];im[i]=0}
+  fft(re,im);
+  for(let b=0;b<maxBin;b++){const d=20*Math.log10(Math.hypot(re[b],im[b])/(N/4)+1e-9);S[t*maxBin+b]=d;meanDb[b]+=d/frames}
+  if(t%60==0){s.textContent='Analyse du spectre… '+Math.round(100*t/frames)+' %';await new Promise(r=>setTimeout(r))}
+ }
+ noise=new Float32Array(maxBin);
+ const fv=[];for(let t=0;t<frames;t++){let a=0;for(let b=0;b<maxBin;b+=8)a+=S[t*maxBin+b];fv.push([a/(maxBin/8),t])}
+ let ok=fv.filter(q=>q[0]>-120).sort((p,q)=>p[0]-q[0]).map(q=>q[1]);
+ if(ok.length<10)ok=fv.map(q=>q[1]);
+ ok=ok.slice(0,Math.max(10,Math.floor(ok.length*.15)));
+ const tmp=new Float32Array(ok.length);
+ for(let b=0;b<maxBin;b++){ok.forEach((t,i)=>tmp[i]=S[t*maxBin+b]);tmp.sort();noise[b]=tmp[ok.length>>1]}
+ let hs=0,hn=0;for(let b=Math.floor(4000/binHz);b<Math.min(maxBin,12000/binHz);b++){hs+=noise[b];hn++}
+ hiss.db=hs/hn;hiss.on=hiss.db>-85;
+ // dessin
+ const cv=$('#spg'),H=420;cv.width=frames;cv.height=H;
+ const cx=cv.getContext('2d'),img=cx.createImageData(frames,H),rb=[];
+ for(let y=0;y<H;y++)rb[y]=Math.min(maxBin-1,Math.round(F0*(FMAX/F0)**(1-y/H)/binHz));
+ for(let y=0;y<H;y++)for(let x=0;x<frames;x++){
+  const v=Math.max(0,Math.min(1,(S[x*maxBin+rb[y]]+100)/80)),p=(y*frames+x)*4;
+  img.data[p]=255*Math.min(1,v*2.2);img.data[p+1]=255*Math.max(0,Math.min(1,(v-.4)*2.2));img.data[p+2]=255*(v<.5?v*1.1:Math.max(0,.55-(v-.5)*1.5));img.data[p+3]=255;
+ }
+ cx.putImageData(img,0,0);return true;
+}
+
+/* Détection du grésillement */
+function detect(){
+ const th=+$('#th').value;$('#thv').textContent=th+' dB';cands=[];
+ for(let b=Math.ceil(30/binHz);b<maxBin-1;b++){
+  if(!(noise[b]>=noise[b-1]&&noise[b]>noise[b+1]))continue;
+  let s=0,n=0;for(let i=Math.max(1,b-30);i<=Math.min(maxBin-1,b+30);i++)if(Math.abs(i-b)>4){s+=noise[i];n++}
+  if(!n)continue;const pr=noise[b]-s/n;if(pr<th)continue;
+  const a=noise[b-1],c=noise[b+1],d=a-2*noise[b]+c,dl=d?.5*(a-c)/d:0;
+  let f=(b+dl)*binHz,tag=f<400?'bruit grave continu':'sifflement ou grésillement';
+  const k=Math.round(f/50);
+  if(k&&f<1000&&Math.abs(f-k*50)<=4){f=k*50;tag=k==1?'ronflement du secteur (50 Hz)':'harmonique du secteur ('+k+' × 50 Hz)'}
+  cands.push({f,db:noise[b],prom:pr,on:true,tag});
+ }
+ cands=cands.sort((x,y)=>y.prom-x.prom).slice(0,10).sort((x,y)=>x.f-y.f);
+ renderC();rewire();
+}
+function renderC(){
+ let h=cands.map((c,i)=>`<label class="cd"><input type="checkbox" data-i="${i}" ${c.on?'checked':''}><b class="m">${c.f.toFixed(c.f<100?1:0)} Hz</b><span class="m">${c.db.toFixed(0)} dB, +${c.prom.toFixed(0)} dB au-dessus du fond</span><em>${c.tag}</em></label>`).join('');
+ if(!h)h='<p class="hint">Aucune fréquence parasite nette. Baisse la sensibilité pour être plus exigeant, ou monte-la pour en chercher davantage.</p>';
+ h+=`<div class="cd"><b>Souffle aigu</b><span class="m">${hiss.db.toFixed(0)} dB en moyenne entre 4 et 12 kHz</span><em>réduit par Grilz</em></div>`;
+ $('#cands').innerHTML=h;
+}
+$('#cands').onchange=e=>{
+ if(e.target.id=='hiss')hiss.on=e.target.checked;else cands[e.target.dataset.i].on=e.target.checked;rewire();
+};
+$('#th').oninput=()=>noise&&detect();
+
+/* Affichage temps réel */
+function curve(x,get,X,Y,w,h,col,lw){
+ x.beginPath();
+ for(let i=0;i<=w;i++){const y=Y+h*(1-(get(20*1000**(i/w))+110)/110),yy=Math.max(Y,Math.min(Y+h,y));i?x.lineTo(X+i,yy):x.moveTo(X+i,yy)}
+ x.strokeStyle=col;x.lineWidth=lw;x.stroke();
+}
+function drawSpec(){
+ const c=$('#live'),x=c.getContext('2d'),W=c.width,H=c.height,X0=58,Y0=34,w=W-X0-28,h=H-Y0-40,TL='#2f8f8b',RD='#8b2a24';
+ x.fillStyle='#fff';x.fillRect(0,0,W,H);x.font='12px system-ui';x.lineWidth=1;x.fillStyle='#656d79';x.strokeStyle='#e3e7ec';
+ FQ.forEach(f=>{const X=X0+px(f,w);x.beginPath();x.moveTo(X,Y0);x.lineTo(X,Y0+h);x.stroke();x.fillText(lbl(f),X-8,Y0+h+20)});
+ for(let d=-100;d<=-20;d+=20){const Y=Y0+h*(1-(d+110)/110);x.beginPath();x.moveTo(X0,Y);x.lineTo(X0+w,Y);x.stroke();x.fillText(d,X0-34,Y+4)}
+ x.fillText('Hz',X0+w+2,Y0+h+36);x.fillText('dB',X0-34,Y0-8);
+ specAn.getFloatFrequencyData(fa);
+ const bh=ac.sampleRate/specAn.fftSize,get=f=>Math.max(-110,fa[Math.min(fa.length-1,f/bh|0)]+13.2),fl=f=>noise?noise[Math.min(maxBin-1,f/binHz|0)]:-110;
+ x.setLineDash([5,4]);x.strokeStyle='#d9a09a';x.lineWidth=1.5;
+ cands.filter(k=>k.on).forEach(k=>{const X=X0+px(k.f,w);x.beginPath();x.moveTo(X,Y0);x.lineTo(X,Y0+h);x.stroke()});x.setLineDash([]);
+ x.lineJoin=x.lineCap='round';curve(x,fl,X0,Y0,w,h,TL,3.5);curve(x,get,X0,Y0,w,h,RD,3.5);
+ x.strokeStyle=x.fillStyle=TL;x.lineWidth=3;x.beginPath();x.moveTo(X0,Y0+h);x.lineTo(X0,Y0-6);x.moveTo(X0,Y0+h);x.lineTo(X0+w+10,Y0+h);x.stroke();
+ x.beginPath();x.moveTo(X0-6,Y0-4);x.lineTo(X0,Y0-16);x.lineTo(X0+6,Y0-4);x.fill();x.beginPath();x.moveTo(X0+w+8,Y0+h-6);x.lineTo(X0+w+20,Y0+h);x.lineTo(X0+w+8,Y0+h+6);x.fill();
+ x.font='13px system-ui';x.fillStyle=TL;x.fillRect(X0+16,10,22,4);x.fillText('Plancher de bruit du fichier',X0+44,15);
+ x.fillStyle=RD;x.fillRect(X0+260,10,22,4);x.fillText('Signal en lecture (avec Vox, Grilz et gain)',X0+288,15);
+ let m=-999,mb=Math.ceil(30/bh);for(let b=mb;b<fa.length;b++)if(fa[b]>m){m=fa[b];mb=b}
+ let t='Pic : '+(mb*bh).toFixed(0)+' Hz à '+Math.max(-110,m+13.2).toFixed(1)+' dB';
+ const u=hx==null?-1:(hx*W-X0)/w;
+ if(u>=0&&u<=1){const f=20*1000**u,X=X0+u*w;x.strokeStyle='#161a20';x.lineWidth=1;x.beginPath();x.moveTo(X,Y0);x.lineTo(X,Y0+h);x.stroke();t+='     Curseur : '+f.toFixed(0)+' Hz / signal '+get(f).toFixed(1)+' dB / plancher '+fl(f).toFixed(1)+' dB'}
+ $('#rd').textContent=t;
+}
+function drawVU(){
+ meterAn.getFloatTimeDomainData(ta);let p=0,s=0;
+ for(const v of ta){const a=Math.abs(v);if(a>p)p=a;s+=v*v}
+ const pk=20*Math.log10(p+1e-9),rm=10*Math.log10(s/ta.length+1e-12);
+ hold=Math.max(pk,hold-.3);if(p>=1)clip=true;
+ const P=d=>Math.max(0,Math.min(100,(d+60)/66*100));
+ $('#c1').style.width=(100-P(pk))+'%';$('#c2').style.width=(100-P(rm))+'%';$('#vh').style.left=P(hold)+'%';
+ $('#vt').textContent='Crête '+Math.max(-99,pk).toFixed(1)+' dB / RMS '+Math.max(-99,rm).toFixed(1)+' dB';
+ $('#clip').className=clip?'on':'';
+}
+function loop(){
+ requestAnimationFrame(loop);if(!buf)return;
+ const d=au.duration||buf.duration;
+ $('#ph').style.left=au.currentTime/d*100+'%';$('#time').textContent=fmt(au.currentTime)+' / '+fmt(d);
+ drawSpec();drawVU();
+}
+loop();
+
+/* Contrôles */
+FQ.concat([20000]).slice(0,8).forEach(f=>{const d=document.createElement('div');d.className='fl';d.textContent=lbl(f);d.style.top=(1-Math.log(f/F0)/Math.log(FMAX/F0))*100+'%';$('#spw').append(d)});
+[.25,.5,.75,1,1.5,2].forEach(r=>{
+ const b=document.createElement('button');b.textContent='×'+r;if(r==1)b.className='on';
+ b.onclick=()=>{rate=r;if(au)au.playbackRate=r;[...$('#sp').children].forEach(x=>x.className='');b.className='on'};$('#sp').append(b);
+});
+const toggle=()=>{if(!au||!buf)return;ac.resume().then(()=>au.paused?au.play():au.pause()).catch(e=>{$('#status').textContent='Lecture impossible : '+e.message})};
+$('#play').onclick=toggle;
+addEventListener('keydown',e=>{if(e.code=='Space'&&!/INPUT|BUTTON/.test(e.target.tagName)){e.preventDefault();toggle()}});
+$('#spw').onclick=e=>{if(!au||!buf)return;const r=$('#spw').getBoundingClientRect();au.currentTime=(e.clientX-r.left)/r.width*buf.duration};
+$('#live').onmousemove=e=>{const r=e.target.getBoundingClientRect();hx=(e.clientX-r.left)/r.width};
+$('#live').onmouseleave=()=>hx=null;
+$('#vox').onclick=e=>{st.vox=!st.vox;e.target.classList.toggle('on',st.vox);rewire()};
+$('#grilz').onclick=e=>{st.grilz=!st.grilz;e.target.classList.toggle('on',st.grilz);rewire();applyGrilz()};
+$('#gain').oninput=e=>{st.gain=+e.target.value;$('#gv').textContent=(st.gain>0?'+':'')+st.gain+' dB';if(live)live.g.gain.value=10**(st.gain/20)};
+$('#auto').onclick=()=>{if(!buf)return;const g=Math.max(0,Math.min(30,Math.round((-20-voiceDb)*2)/2));$('#gain').value=g;$('#gain').oninput({target:$('#gain')})};
+$('#lim').onclick=e=>{st.lim=!st.lim;e.target.classList.toggle('on',st.lim);rewire()};
+$('#clip').onclick=()=>{clip=false};
+const drop=$('#drop');
+drop.onclick=()=>$('#file').click();
+drop.onkeydown=e=>{if(e.key=='Enter')$('#file').click()};
+$('#file').onchange=e=>e.target.files[0]&&load(e.target.files[0]);
+drop.ondragover=e=>{e.preventDefault();drop.classList.add('h')};
+drop.ondragleave=()=>drop.classList.remove('h');
+drop.ondrop=e=>{e.preventDefault();drop.classList.remove('h');e.dataTransfer.files[0]&&load(e.dataTransfer.files[0])};
+
+/* Réduction de bruit (soustraction spectrale) */
+async function denoise(b,str){
+ const al=1+str/50,fl=10**(-(10+str/5)/20),H=N/4,K=N/2,L=b.length,out=ac.createBuffer(b.numberOfChannels,L,b.sampleRate);
+ const nm=new Float32Array(K+1).map((_,k)=>N/4*10**(noise[Math.min(k,maxBin-1)]/20));
+ const re=new Float32Array(N),im=new Float32Array(N),g=new Float32Array(K+1);let n=0;const tot=b.numberOfChannels*Math.ceil((L+N)/H);
+ for(let c=0;c<b.numberOfChannels;c++){
+  const x=b.getChannelData(c),y=out.getChannelData(c);
+  for(let o=-N+H;o<L;o+=H){
+   for(let i=0;i<N;i++){const j=o+i;re[i]=j>=0&&j<L?x[j]*win[i]:0;im[i]=0}
+   fft(re,im);
+   for(let k=0;k<=K;k++)g[k]=Math.max(fl,1-al*nm[k]/(Math.hypot(re[k],im[k])+1e-12));
+   for(let k=0;k<=K;k++){const m=(g[Math.max(0,k-1)]+g[k]+g[Math.min(K,k+1)])/3;re[k]*=m;im[k]=-im[k]*m;if(k&&k<K){re[N-k]*=m;im[N-k]=-im[N-k]*m}}
+   fft(re,im);
+   for(let i=0;i<N;i++){const j=o+i;if(j>=0&&j<L)y[j]+=re[i]/N*win[i]/1.5}
+   if(++n%150==0){$('#status').textContent='Réduction du bruit… '+Math.round(100*n/tot)+' %';await new Promise(r=>setTimeout(r))}
+  }
+ }
+ return out;
+}
+function gate(b,dep){
+ const sr=b.sampleRate,W=sr/100|0,ch=b.numberOfChannels,L=b.length,n=Math.floor(L/W),lv=new Float32Array(n);
+ for(let i=0;i<n;i++){let m=0;for(let c=0;c<ch;c++){const x=b.getChannelData(c);let q=0;for(let j=i*W;j<(i+1)*W;j++)q+=x[j]*x[j];m=Math.max(m,q/W)}lv[i]=10*Math.log10(m+1e-14)}
+ const so=[...lv].sort((a,c)=>a-c),fl=so[n*.1|0],hi=so[n*.9|0],thr=fl+.3*(hi-fl),op=new Uint8Array(n);
+ for(let i=0;i<n;i++)if(lv[i]>thr)for(let k=Math.max(0,i-3);k<=Math.min(n-1,i+15);k++)op[k]=1;
+ const lo=10**(-(6+.34*dep)/20),aA=1-Math.exp(-1/(sr*.005)),aR=1-Math.exp(-1/(sr*.12)),G=new Float32Array(L),out=ac.createBuffer(ch,L,sr);let g=1;
+ for(let i=0;i<L;i++){const t=op[Math.min(n-1,i/W|0)]?1:lo;g+=(t-g)*(t>g?aA:aR);G[i]=g}
+ for(let c=0;c<ch;c++){const x=b.getChannelData(c),y=out.getChannelData(c);for(let i=0;i<L;i++)y[i]=x[i]*G[i]}
+ return out;
+}
+async function ensureDn(){
+ const v=+$('#str').value,q=+$('#gt').value;if(dn&&dnS==v&&dnG==q)return;
+ if(!dn0||dn0S!=v){$('#status').textContent='Réduction du bruit…';dn0=await denoise(buf,v);dn0S=v}
+ dn=q?gate(dn0,q):dn0;dnS=v;dnG=q;
+ urlD&&URL.revokeObjectURL(urlD);urlD=URL.createObjectURL(new Blob([wav(dn)[0]],{type:'audio/wav'}));
+}
+function setSrc(u){
+ const t=au.currentTime,pl=!au.paused;au.src=u;au.playbackRate=rate;
+ au.onloadedmetadata=()=>{au.onloadedmetadata=null;au.currentTime=t;if(pl)au.play()};
+}
+async function applyGrilz(){
+ if(!buf)return;
+ if(st.grilz){await ensureDn();$('#status').textContent='Grilz appliqué.'}
+ setSrc(st.grilz?urlD:urlO);
+}
+$('#str').oninput=e=>{$('#sv').textContent=e.target.value+' %'};
+$('#str').onchange=()=>st.grilz&&applyGrilz();
+$('#gt').oninput=e=>{$('#gv2').textContent=e.target.value+' %'};$('#gt').onchange=()=>st.grilz&&applyGrilz();
+
+/* Export WAV */
+function wav(b,bits=16){
+ const n=b.length,ch=b.numberOfChannels,B=bits/8,o=new DataView(new ArrayBuffer(44+n*ch*B));
+ const w=(p,s)=>[...s].forEach((c,i)=>o.setUint8(p+i,c.charCodeAt(0)));
+ w(0,'RIFF');o.setUint32(4,36+n*ch*B,true);w(8,'WAVEfmt ');o.setUint32(16,16,true);o.setUint16(20,1,true);o.setUint16(22,ch,true);
+ o.setUint32(24,b.sampleRate,true);o.setUint32(28,b.sampleRate*ch*B,true);o.setUint16(32,ch*B,true);o.setUint16(34,bits,true);w(36,'data');o.setUint32(40,n*ch*B,true);
+ const D=[...Array(ch).keys()].map(i=>b.getChannelData(i));let p=44,k=0;
+ for(let i=0;i<n;i++)for(let c=0;c<ch;c++){
+  let v=D[c][i];if(Math.abs(v)>1)k++;v=Math.max(-1,Math.min(1,v));
+  if(B==2)o.setInt16(p,v<0?v*32768:v*32767,true);
+  else{const q=Math.round(v<0?v*8388608:v*8388607);o.setUint8(p,q&255);o.setUint8(p+1,q>>8&255);o.setUint8(p+2,q>>16&255)}
+  p+=B;
+ }
+ return [o,k];
+}
+const dl=(blob,name)=>{const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),5000)};
+const base=()=>fname.replace(/\.[^.]+$/,'');
+$('#wav').onclick=async()=>{
+ if(!buf)return;const s=$('#status');s.textContent='Export en cours…';
+ if(st.grilz)await ensureDn();
+ const a=st.grilz&&dn?dn:buf,o=new OfflineAudioContext(a.numberOfChannels,a.length,a.sampleRate),b=o.createBufferSource();b.buffer=a;
+ const ns=chain(o,b,settings());ns[ns.length-1].connect(o.destination);b.start();
+ const [d,k]=wav(await o.startRendering(),24);
+ let tag=' - Modifié'+(st.vox?' [Vox]':'')+(st.grilz?' [Grilz]':'')+(st.gain?' [+'+st.gain+' dB]':'');
+ if(tag==' - Modifié')tag=' - Copie';
+ dl(new Blob([d],{type:'audio/wav'}),base()+tag+'.wav');
+ s.textContent=(k?'Exporté, mais '+k+' échantillons saturent : baisse le gain.':'Exporté sans saturation.')+' ('+a.sampleRate+' Hz, 24 bits)';
+};
+
+/* Export PDF */
+$('#pdf').onclick=()=>{
+ if(!buf)return;if(!window.jspdf){alert('La bibliothèque PDF n’a pas chargé (connexion ?).');return}
+ const d=new window.jspdf.jsPDF(),Wc=1800;
+ d.setFontSize(22);d.text("Spectra - Rapport d'analyse audio",15,20);d.setFontSize(10);
+ d.text(['Fichier : '+fname,'Date : '+new Date().toLocaleString('fr-FR'),'Durée : '+fmt(buf.duration)+' / '+buf.sampleRate+' Hz / '+buf.numberOfChannels+' canal(aux) / crête du fichier : '+peakDb.toFixed(1)+' dBFS'],15,28);
+ // spectrogramme
+ let c=document.createElement('canvas');c.width=Wc;c.height=560;let x=c.getContext('2d');
+ x.fillStyle='#fff';x.fillRect(0,0,Wc,560);x.drawImage($('#spg'),90,10,1700,500);x.fillStyle='#000';x.font='22px sans-serif';
+ FQ.forEach(f=>x.fillText(lbl(f),5,17+500*(1-Math.log(f/F0)/Math.log(FMAX/F0))));
+ for(let i=0;i<=10;i++)x.fillText(fmt(buf.duration*i/10),70+1700*i/10,545);
+ d.setFontSize(12);d.text('Spectrogramme (fréquences en Hz, échelle logarithmique)',15,47);
+ d.addImage(c.toDataURL('image/png'),'PNG',15,50,180,180*560/Wc);
+ // spectre moyen et plancher de bruit
+ c=document.createElement('canvas');c.width=Wc;c.height=520;x=c.getContext('2d');
+ x.fillStyle='#fff';x.fillRect(0,0,Wc,520);x.font='22px sans-serif';x.lineWidth=1;
+ for(let db=-100;db<=-20;db+=20){const Y=10+450*(1-(db+110)/110);x.strokeStyle='#ddd';x.beginPath();x.moveTo(90,Y);x.lineTo(1790,Y);x.stroke();x.fillStyle='#000';x.fillText(db+' dB',5,Y+7)}
+ FQ.forEach(f=>{const X=90+px(f,1700);x.strokeStyle='#ddd';x.beginPath();x.moveTo(X,10);x.lineTo(X,460);x.stroke();x.fillStyle='#000';x.fillText(lbl(f),X-12,495)});
+ const gm=a=>f=>a[Math.min(maxBin-1,f/binHz|0)];
+ curve(x,gm(meanDb),90,10,1700,450,'#888',3);curve(x,gm(noise),90,10,1700,450,'#2740d9',3);
+ x.fillStyle='#d93a2b';cands.filter(k=>k.on).forEach(k=>{const X=90+px(k.f,1700);x.strokeStyle='#d93a2b';x.beginPath();x.moveTo(X,10);x.lineTo(X,460);x.stroke();x.fillText(Math.round(k.f)+' Hz',X+4,32)});
+ d.text('Spectre moyen (gris) et plancher de bruit (bleu) - repères rouges : fréquences parasites',15,114);
+ d.addImage(c.toDataURL('image/png'),'PNG',15,117,180,180*520/Wc);
+ // liste
+ d.text('Fréquences parasites détectées',15,178);d.setFontSize(10);
+ const L=cands.map(k=>(k.on?'[x] ':'[ ] ')+Math.round(k.f)+' Hz   '+k.db.toFixed(0)+' dB   (+'+k.prom.toFixed(0)+' dB)   '+k.tag.replace('×','x'));
+ L.push((hiss.on?'[x] ':'[ ] ')+'Souffle aigu : '+hiss.db.toFixed(0)+' dB en moyenne entre 4 et 12 kHz');
+ if(cands.length==0)L.unshift('Aucune fréquence parasite nette.');
+ d.text(L,15,185);d.save(base()+' - Rapport Spectra.pdf');
+};
+</script></body></html>
